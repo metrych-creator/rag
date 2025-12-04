@@ -1,3 +1,4 @@
+import pickle
 from langchain_huggingface import HuggingFaceEmbeddings
 from get_pdf_data import get_pdf_as_document
 from langchain_community.vectorstores import FAISS
@@ -9,13 +10,24 @@ import numpy as np
 
 
 def load_faiss(pdf_path, embedding_model_name, faiss_path="vector_stores/faiss_index"):
+    embedding_model = HuggingFaceEmbeddings(model_name=embedding_model_name)
+    texts_path = faiss_path + "_texts.pkl"
+
     if os.path.exists(faiss_path):
-        return FAISS.load_local(faiss_path, embedding_model_name, allow_dangerous_deserialization=True)
+        with open(texts_path, 'rb') as f:
+                pdf_texts = pickle.load(f)
+                
+        vector_store = FAISS.load_local(faiss_path, embedding_model, allow_dangerous_deserialization=True)
+        return vector_store, pdf_texts
     else:
         docs = get_pdf_as_document(pdf_path)
-        vector_store = FAISS.from_documents(docs, embedding_model_name, distance_metric="cosine")
+        vector_store = FAISS.from_documents(docs, embedding_model)
         vector_store.save_local(faiss_path)
-        return vector_store
+
+        pdf_texts = [doc.page_content for doc in docs]
+        with open(texts_path, 'wb') as f:
+            pickle.dump(pdf_texts, f)
+        return vector_store, pdf_texts
     
 
 def ensure_qdrant_collection(client, collection_name, embedding_dim):
@@ -24,7 +36,7 @@ def ensure_qdrant_collection(client, collection_name, embedding_dim):
     
     client.create_collection(
         collection_name=collection_name,
-        vectors_config=VectorParams(size=embedding_dim, distance="Cosine")
+        vectors_config=VectorParams(size=embedding_dim, distance="cosine")
     )
 
 

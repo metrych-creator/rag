@@ -219,10 +219,9 @@ Answer::: """
 def run_rag_tests(
     eval_dataset: datasets.Dataset,
     answering_model,
-    embedding_model,
-    knowledge_index: VectorStore,
+    embedding_model_name,
     output_file: str,
-    # reranker: Optional[RAGPretrainedModel] = None,
+    rerank: bool = False,
     verbose: Optional[bool] = True,
     test_settings: Optional[str] = None, 
 ):
@@ -238,7 +237,7 @@ def run_rag_tests(
         if question in [output["Question"] for output in outputs]:
             continue
 
-        answer, relevant_docs = answer_query_with_rag(question, answering_model, embedding_model)
+        answer, relevant_docs = answer_query_with_rag(question, answering_model, top_k=100, embedding_model_name=embedding_model_name, rerank=rerank)
 
         if verbose:
             print("=======================================================")
@@ -306,7 +305,7 @@ def run_evaluation(eval_dataset, answering_model, eval_chat_model, embedding_mod
 
     for chunk_size in [500, 1000, 2000]:
         for embedding_model_name in ["thenlper/gte-small", "sentence-transformers/all-MiniLM-L6-v2"]:
-            for rerank in [None]:
+            for rerank in [False, True]:
                 settings_name = f"chunk:{chunk_size}_embeddings:{embedding_model_name.replace('/', '~')}_rerank:{rerank}_reader-model:{READER_MODEL_NAME}"
                 output_file_name = f"./output/rag_{settings_name}.json"
                 
@@ -315,11 +314,6 @@ def run_evaluation(eval_dataset, answering_model, eval_chat_model, embedding_mod
                 knowledge_index = load_faiss('data/ifc-annual-report-2024-financials.pdf', embedding_model=embedding_model)
 
                 print("Running RAG...")
-                # reranker = (
-                #     RAGPretrainedModel.from_pretrained("colbert-ir/colbertv2.0")
-                #     if rerank
-                #     else None
-                # )
                 
                 run_rag_tests(
                     eval_dataset=eval_dataset,
@@ -327,7 +321,7 @@ def run_evaluation(eval_dataset, answering_model, eval_chat_model, embedding_mod
                     embedding_model=embedding_model,
                     knowledge_index=knowledge_index,
                     output_file=output_file_name,
-                    # reranker=reranker,
+                    reranker=rerank,
                     verbose=False,
                     test_settings=settings_name,
                 )
@@ -411,8 +405,7 @@ def llm_evaluate_rag_models():
 
     embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     answering_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
-    # eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
-    eval_chat_model = HuggingFaceEmbeddings(model_name="ProsusAI/finbert")
+    eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
 
     # prepare evaluation dataset
     if not os.path.exists("data/eval_dataset.csv"):
@@ -437,32 +430,29 @@ def llm_evaluate_rag_models():
 
 
 def wrap_llm_output(raw_output):
-    # jeśli evaluator zwraca {"statements": [...]}, konwertujemy na {"text": "..."}
     if isinstance(raw_output, dict) and "statements" in raw_output:
         return {"text": "\n".join([s["statement"] for s in raw_output["statements"]])}
     return raw_output
 
 
-def metric_rag_evaluation():
-    # if "response" not in df.columns:
-    if not os.path.exists("data/RAG_evaluation_with_responses.csv"):
+def metric_rag_evaluation(top_k=10, rerank=False, hybrid=False):
+    # check if dataset with model answer exists
+    if not os.path.exists(f"data/RAG_evaluation_with_responses_topk_{top_k}_rerank_{rerank}_hybrid_{hybrid}.csv"):
         df = pd.read_csv("data/RAG_evaluation.csv")
         answering_model = init_chat_model("gemini-2.5-flash-lite")            
-        # df["response"], df["retrieved_contexts"] = zip(*df["Question"].apply(
-        #     lambda prompt: answer_query_with_rag(prompt, answering_model, 'thenlper/gte-small')))
         
         results = df["Question"].apply(
-            lambda q: answer_query_with_rag(q, answering_model, embedding_model_name="thenlper/gte-small"))
+            lambda q: answer_query_with_rag(q, answering_model, top_k=top_k, rerank=rerank))
         
         df["response"] = results.apply(lambda x: x[0])
         df["retrieved_contexts"] = results.apply(lambda x: x[1])
-        df.to_csv("data/RAG_evaluation_with_responses.csv", index=False)
-
-    df = pd.read_csv("data/RAG_evaluation_with_responses.csv")
-    # df["retrieved_contexts"] = df["retrieved_contexts"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-    df["retrieved_contexts"] = df["retrieved_contexts"].apply(
-        lambda x: x if isinstance(x, list) else ast.literal_eval(x))
+        df.to_csv(f"data/RAG_evaluation_with_responses_topk_{top_k}_rerank_{rerank}_hybrid_{hybrid}.csv", index=False)
+    else:
+        df = pd.read_csv(f"data/RAG_evaluation_with_responses_topk_{top_k}_rerank_{rerank}_hybrid{hybrid}.csv")
+        df["retrieved_contexts"] = df["retrieved_contexts"].apply(
+            lambda x: x if isinstance(x, list) else ast.literal_eval(x))
     
+    # prepare dataset to evaluation
     df = df.rename(columns={
     "Question": "user_input",
     "Ground_Truth_Answer": "reference",
@@ -473,4 +463,9 @@ def metric_rag_evaluation():
     raw_evaluator_llm = create_llm_to_metric_evaluation("gemini-2.5-flash-lite")
     evaluator_llm = wrap_llm_output(raw_evaluator_llm)
     result = evaluate(dataset=evaluation_dataset, metrics=[LLMContextRecall(), Faithfulness(), FactualCorrectness()], llm=evaluator_llm)
+
     print(result)
+
+    # save scores
+    with open(f'output/metrics_top_k_{top_k}_rerank_{rerank}_hybrid{hybrid}.txt', 'w', encoding='utf-8') as f:
+        f.write(str(result))

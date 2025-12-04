@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     # R========= RAG EVALUATION =========
     # llm_evaluate_rag_models()
-    metric_rag_evaluation()
+    metric_rag_evaluation(top_k=100, rerank=True, hybrid=True)
 
     # ========= APP =========
     # show_view(answering_model)
