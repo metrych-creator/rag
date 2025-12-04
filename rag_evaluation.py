@@ -1,7 +1,8 @@
+import ast
 from tqdm.auto import tqdm
 import pandas as pd
 import json
-from answering_model import call_gemini, answer_query_with_rag
+from answering_model import call_gemini, answer_query_with_rag, create_llm_to_metric_evaluation
 from get_pdf_data import get_pdf_as_document
 from vector_stores import load_faiss
 import random
@@ -15,12 +16,16 @@ from langchain_huggingface import HuggingFaceEmbeddings
 import os
 import glob
 import matplotlib.pyplot as plt
+from ragas.metrics import LLMContextRecall, Faithfulness, FactualCorrectness
+from ragas import evaluate
+from ragas.evaluation import EvaluationDataset
+
 
 pd.set_option("display.max_colwidth", 10)
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", 500)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-TOKENIZERS_PARALLELISM=False
 EVALUATION_PROMPT = """###Task Description:
 An instruction (might include an Input inside it), a response to evaluate, a reference answer that gets a score of 5, and a score rubric representing a evaluation criteria are given.
 1. Write a detailed feedback that assess the quality of the response strictly based on the given score rubric, not evaluating in general.
@@ -49,7 +54,7 @@ Score 5: The response is completely correct, accurate, and factual.
 
 
 
-def generate_qa_pairs(chunks, ifsave=True, n_samples=100):
+def generate_qa_pairs(chunks, ifsave=True, n_samples=100, temperature=0.7):
     
     print(f"Generating {n_samples} QA couples...")
 
@@ -77,7 +82,7 @@ def generate_qa_pairs(chunks, ifsave=True, n_samples=100):
 
         # Generate QA couple
         output_QA_couple = call_gemini(
-            QA_generation_prompt.format(context=context)
+            QA_generation_prompt.format(context=context), temperature=temperature
         )
 
         try:
@@ -104,15 +109,6 @@ def generate_qa_pairs(chunks, ifsave=True, n_samples=100):
     if ifsave == True:
         df = pd.DataFrame(outputs)
         df.to_csv("data/generated_qa_pairs.csv", index=False, encoding="utf-8", header=True)
-
-
-def join_generated_and_sample_qa_pairs(chunks):
-    generate_qa_pairs(chunks, ifsave=True)
-    generated_qa_pairs = pd.read_csv("data/generated_qa_pairs.csv", encoding="utf-8", header=0)
-    rag_evaluation_questions = pd.read_csv("data/RAG_evaluation.csv", encoding="utf-8", header=0)
-    df_combined = pd.concat([generated_qa_pairs, rag_evaluation_questions], ignore_index=True)
-    df_combined.to_csv("data/combined_qa_pairs.csv", index=False, encoding="utf-8", header=True)
-
 
 
 
@@ -409,17 +405,22 @@ def load_plot_rag_results(output_folder="./output"):
     return df, avg_scores
 
 
-def evaluate_rag_models():
+def llm_evaluate_rag_models():
     pdf_path = "data/ifc-annual-report-2024-financials.pdf"
     chunks = get_pdf_as_document(pdf_path=pdf_path)
 
     embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     answering_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
-    eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
+    # eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
+    eval_chat_model = HuggingFaceEmbeddings(model_name="ProsusAI/finbert")
 
     # prepare evaluation dataset
     if not os.path.exists("data/eval_dataset.csv"):
-        join_generated_and_sample_qa_pairs(chunks)
+        generate_qa_pairs(chunks, ifsave=True, temperature=0.7, n_samples=100)
+        generated_qa_pairs = pd.read_csv("data/generated_qa_pairs.csv", encoding="utf-8", header=0)
+        rag_evaluation_questions = pd.read_csv("data/RAG_evaluation.csv", encoding="utf-8", header=0)
+        df_combined = pd.concat([generated_qa_pairs, rag_evaluation_questions], ignore_index=True)
+        df_combined.to_csv("data/combined_qa_pairs.csv", index=False, encoding="utf-8", header=True)
 
     if not os.path.exists("data/combined_qa_pairs.csv"):
         combined_qa_pairs = pd.read_csv("data/combined_qa_pairs.csv", encoding="utf-8", header=0)
@@ -433,3 +434,43 @@ def evaluate_rag_models():
 
     load_and_print_rag_results()
     load_plot_rag_results()
+
+
+def wrap_llm_output(raw_output):
+    # jeśli evaluator zwraca {"statements": [...]}, konwertujemy na {"text": "..."}
+    if isinstance(raw_output, dict) and "statements" in raw_output:
+        return {"text": "\n".join([s["statement"] for s in raw_output["statements"]])}
+    return raw_output
+
+
+def metric_rag_evaluation():
+    # if "response" not in df.columns:
+    if not os.path.exists("data/RAG_evaluation_with_responses.csv"):
+        df = pd.read_csv("data/RAG_evaluation.csv")
+        answering_model = init_chat_model("gemini-2.5-flash-lite")            
+        # df["response"], df["retrieved_contexts"] = zip(*df["Question"].apply(
+        #     lambda prompt: answer_query_with_rag(prompt, answering_model, 'thenlper/gte-small')))
+        
+        results = df["Question"].apply(
+            lambda q: answer_query_with_rag(q, answering_model, embedding_model_name="thenlper/gte-small"))
+        
+        df["response"] = results.apply(lambda x: x[0])
+        df["retrieved_contexts"] = results.apply(lambda x: x[1])
+        df.to_csv("data/RAG_evaluation_with_responses.csv", index=False)
+
+    df = pd.read_csv("data/RAG_evaluation_with_responses.csv")
+    # df["retrieved_contexts"] = df["retrieved_contexts"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+    df["retrieved_contexts"] = df["retrieved_contexts"].apply(
+        lambda x: x if isinstance(x, list) else ast.literal_eval(x))
+    
+    df = df.rename(columns={
+    "Question": "user_input",
+    "Ground_Truth_Answer": "reference",
+    'Context_Content_Type': 'Context_Content_Type'
+    })
+
+    evaluation_dataset = EvaluationDataset.from_pandas(df)
+    raw_evaluator_llm = create_llm_to_metric_evaluation("gemini-2.5-flash-lite")
+    evaluator_llm = wrap_llm_output(raw_evaluator_llm)
+    result = evaluate(dataset=evaluation_dataset, metrics=[LLMContextRecall(), Faithfulness(), FactualCorrectness()], llm=evaluator_llm)
+    print(result)
