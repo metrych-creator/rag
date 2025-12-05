@@ -222,6 +222,7 @@ def run_rag_tests(
     embedding_model_name,
     output_file: str,
     rerank: bool = False,
+    hybrid: bool= False,
     verbose: Optional[bool] = True,
     test_settings: Optional[str] = None, 
 ):
@@ -237,7 +238,7 @@ def run_rag_tests(
         if question in [output["Question"] for output in outputs]:
             continue
 
-        answer, relevant_docs = answer_query_with_rag(question, answering_model, top_k=100, embedding_model_name=embedding_model_name, rerank=rerank)
+        answer, relevant_docs = answer_query_with_rag(question, answering_model, top_k=100, embedding_model_name=embedding_model_name, rerank=rerank, hybrid_serach=hybrid)
 
         if verbose:
             print("=======================================================")
@@ -435,14 +436,14 @@ def wrap_llm_output(raw_output):
     return raw_output
 
 
-def metric_rag_evaluation(top_k=10, rerank=False, hybrid=False):
+def metric_rag_evaluation(top_k=10, rerank=False, hybrid=False, metadana_filter=None):
     # check if dataset with model answer exists
     if not os.path.exists(f"data/RAG_evaluation_with_responses_topk_{top_k}_rerank_{rerank}_hybrid_{hybrid}.csv"):
         df = pd.read_csv("data/RAG_evaluation.csv")
         answering_model = init_chat_model("gemini-2.5-flash-lite")            
         
         results = df["Question"].apply(
-            lambda q: answer_query_with_rag(q, answering_model, top_k=top_k, rerank=rerank))
+            lambda q: answer_query_with_rag(q, answering_model, top_k=top_k, rerank=rerank, hybrid_serach=hybrid, metadata_filter=metadana_filter))
         
         df["response"] = results.apply(lambda x: x[0])
         df["retrieved_contexts"] = results.apply(lambda x: x[1])

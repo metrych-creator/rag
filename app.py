@@ -16,7 +16,9 @@ if __name__ == "__main__":
 
     # R========= RAG EVALUATION =========
     # llm_evaluate_rag_models()
-    metric_rag_evaluation(top_k=100, rerank=True, hybrid=True)
+    
+    # metric_rag_evaluation(top_k=100, rerank=True, hybrid=True, metadana_filter={"page_number": 1})
 
     # ========= APP =========
     # show_view(answering_model)
+

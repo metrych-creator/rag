@@ -9,7 +9,7 @@ import time
 import numpy as np
 
 
-def load_faiss(pdf_path, embedding_model_name, faiss_path="vector_stores/faiss_index"):
+def load_faiss(pdf_path, embedding_model_name='thenlper/gte-small', faiss_path="vector_stores/faiss_index"):
     embedding_model = HuggingFaceEmbeddings(model_name=embedding_model_name)
     texts_path = faiss_path + "_texts.pkl"
 
@@ -64,30 +64,18 @@ def add_emb_to_qdrant(client, docs, embeddings, collection_name):
     client.upsert(collection_name=collection_name, points=points)
 
 
-def search_faiss(vector_store, query, embedding_model_name, top_k=3):
-    # Embed and normalize query
-    embedding_model = HuggingFaceEmbeddings(model_name=embedding_model_name)
-    query_vec = np.array(embedding_model.embed_query(query))
-    query_vec_norm = query_vec / np.linalg.norm(query_vec)
-
-    # Search FAISS
-    distances, indices = vector_store.index.search(query_vec.reshape(1, -1), top_k)
+def search_faiss(vector_store, query: str, top_k=10, metadata_filter=None):
+    results_with_score = vector_store.similarity_search_with_score(
+        query=query, 
+        k=top_k, 
+        filter=metadata_filter
+    )
 
     results = []
-    for dist, idx in zip(distances[0], indices[0]):
-        doc_id = vector_store.index_to_docstore_id[int(idx)]
-        doc = vector_store.docstore.search(doc_id)
-
-        # Reconstruct and normalize vector
-        stored_vec = vector_store.index.reconstruct(int(idx))
-        stored_vec_norm = stored_vec / np.linalg.norm(stored_vec)
-
-        # Cosine similarity
-        cosine = float(np.dot(query_vec_norm, stored_vec_norm))
-
+    for doc, score in results_with_score:
         results.append({
             "text": doc.page_content,
-            "score": cosine,
+            "score": score,
             "metadata": doc.metadata
         })
 
@@ -124,7 +112,7 @@ def compare_vector_stores(embedding_model):
 
     print("\n========== FAISS RESULTS ==========")
     start = time.time()
-    faiss_results = search_faiss(faiss_store, query, embedding_model)
+    faiss_results = search_faiss(faiss_store, query)
     print(f"FAISS latency: {(time.time() - start):.4f} s")
 
     for i, res in enumerate(faiss_results, 1):

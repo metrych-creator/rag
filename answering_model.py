@@ -44,10 +44,10 @@ def reciprocal_rank_fusion(faiss_results, bm25_results, k=100):
 
 
 @observe()
-def answer_query_with_rag(query: str, answering_model, embedding_model_name='thenlper/gte-small', rerank=False, top_k=100, final_context_k_rerank=5, hybrid_serach=False):
+def answer_query_with_rag(query: str, answering_model, embedding_model_name='thenlper/gte-small', rerank=False, top_k=100, final_context_k_rerank=5, hybrid_serach=False, metadata_filter=None):
     # 1. RETRIEVAL
     faiss_store, pdf_texts = load_faiss(pdf_path, embedding_model_name)
-    faiss_results = search_faiss(faiss_store, query, embedding_model_name, top_k=top_k)
+    faiss_results = search_faiss(faiss_store, query, top_k=top_k, metadata_filter=metadata_filter)
 
     # 1A. SEMANTIC SEARCH - FAISS
     retrieved_docs = [res['text'] for res in faiss_results]
