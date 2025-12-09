@@ -12,10 +12,13 @@ from ragas.llms import LangchainLLMWrapper
 import google.auth
 from google.genai import types
 from rank_bm25 import BM25Okapi
+from langchain.chat_models import init_chat_model
+
 
 load_dotenv() 
 google_api_key = os.getenv("GOOGLE_API_KEY")
 pdf_path = "data/ifc-annual-report-2024-financials.pdf"
+answering_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
 
 
 def reciprocal_rank_fusion(faiss_results, bm25_results, k=100):
@@ -44,7 +47,7 @@ def reciprocal_rank_fusion(faiss_results, bm25_results, k=100):
 
 
 @observe()
-def answer_query_with_rag(query: str, answering_model, embedding_model_name='thenlper/gte-small', rerank=False, top_k=100, final_context_k_rerank=5, hybrid_serach=False, metadata_filter=None):
+def answer_query_with_rag(query: str, embedding_model_name='thenlper/gte-small', rerank=False, top_k=100, final_context_k_rerank=5, hybrid_serach=False, metadata_filter=None):
     # 1. RETRIEVAL
     faiss_store, pdf_texts = load_faiss(pdf_path, embedding_model_name)
     faiss_results = search_faiss(faiss_store, query, top_k=top_k, metadata_filter=metadata_filter)
@@ -103,7 +106,7 @@ def answer_query_with_rag(query: str, answering_model, embedding_model_name='the
         """
     )
 
-    agent = create_agent(answering_model, system_prompt=agent_input)
+    agent = create_agent(system_prompt=agent_input)
 
     for event in agent.stream(
         {"messages": [{"role": "user", "content": query}]},
