@@ -383,6 +383,7 @@ def run_evaluation_for_images(data_type: DataType, eval_dataset: pd.DataFrame, e
 
 def plot_rag_results():
     ranked_scores = process_and_rank_results()
+    print(ranked_scores)
     df = ranked_scores.to_frame().reset_index()
     df = df.set_index('settings', inplace=False)
 
@@ -392,7 +393,22 @@ def plot_rag_results():
 
     n_bars = len(df)
     plt.figure(figsize=(12, max(6, n_bars*0.25)))
-    df['eval_score'].sort_values(ascending=False).plot(kind="barh")
+
+    ax = df['eval_score'].sort_values(ascending=False).plot(kind="barh")
+
+    for bar in ax.patches:
+        value = bar.get_width()
+        ax.text(
+            value - 0.02,                     
+            bar.get_y() + bar.get_height() / 2,
+            f"{value:.3f}",
+            va="center",
+            ha="right",
+            color="white",
+            fontsize=9
+        )
+
+    # df['eval_score'].sort_values(ascending=False).plot(kind="barh")
     plt.ylabel("Normalized eval_score")
     plt.xticks(rotation=45, ha="right")
     plt.title("Average RAG Evaluation Scores")
@@ -462,22 +478,22 @@ def prepare_eval_dataset(pdf_path):
 
 def llm_evaluate_rag_models(data_type: DataType, eval_dataset='data/RAG_evaluation.csv'):
     pdf_path = "data/ifc-annual-report-2024-financials.pdf"
-    json_files = glob.glob(f"./output/*.json")
-    eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
+    # json_files = glob.glob(f"./output/*.json")
+    # eval_chat_model = init_chat_model("google_genai:gemini-2.5-flash-lite")
 
 
-    # prepare evaluation dataset
-    if os.path.exists(eval_dataset):
-        eval_dataset = pd.read_csv(eval_dataset)
-    else:
-        eval_dataset = prepare_eval_dataset(pdf_path)
+    # # prepare evaluation dataset
+    # if os.path.exists(eval_dataset):
+    #     eval_dataset = pd.read_csv(eval_dataset)
+    # else:
+    #     eval_dataset = prepare_eval_dataset(pdf_path)
 
-    if data_type == DataType.TEXT:
-        run_evaluation(data_type, eval_dataset, eval_chat_model)
-    else:
-        run_evaluation_for_images(data_type, eval_dataset, eval_chat_model)
+    # if data_type == DataType.TEXT:
+    #     run_evaluation(data_type, eval_dataset, eval_chat_model)
+    # else:
+    #     run_evaluation_for_images(data_type, eval_dataset, eval_chat_model)
 
-    print("Scored model configurations: \n",  process_and_rank_results())
+    # print("Scored model configurations: \n",  process_and_rank_results())
     plot_rag_results()
 
 
