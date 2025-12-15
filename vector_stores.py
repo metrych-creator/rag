@@ -15,7 +15,7 @@ def load_faiss(pdf_path, embedding_model_name='thenlper/gte-small', faiss_path="
 
     if os.path.exists(faiss_path):
         with open(texts_path, 'rb') as f:
-                pdf_texts = pickle.load(f)
+            pdf_texts = pickle.load(f)
                 
         vector_store = FAISS.load_local(faiss_path, embedding_model, allow_dangerous_deserialization=True)
         return vector_store, pdf_texts
