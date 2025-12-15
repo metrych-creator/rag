@@ -106,7 +106,7 @@ def answer_query_with_rag(query: str, embedding_model_name='thenlper/gte-small',
         """
     )
 
-    agent = create_agent(system_prompt=agent_input)
+    agent = create_agent(model='gemini-2.5-flash-lite', system_prompt=agent_input)
 
     for event in agent.stream(
         {"messages": [{"role": "user", "content": query}]},

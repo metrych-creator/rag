@@ -370,7 +370,6 @@ def run_multimodal():
 
 
 
-run_multimodal()
 
 
     

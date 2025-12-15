@@ -4,10 +4,10 @@ import streamlit as st
 from answering_model import answer_query_with_rag
 
 # embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
+# embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 
 
-def show_view(answering_model):
+def show_view():
     st.set_page_config(layout="wide")
     st.header("RAG")
     if "messages" not in st.session_state:
@@ -19,7 +19,7 @@ def show_view(answering_model):
     if user_query:
         st.session_state.messages.append({"role": "user", "type": "TEXT", "text": user_query})
         try:
-            response, texts = answer_query_with_rag(user_query, answering_model, embedding_model_name)
+            response, _ = answer_query_with_rag(user_query)
             print("Response:", response)
         except Exception as e:
             if "503" in str(e) or 'UNAVAILABLE' in str(e):
